@@ -1,4 +1,4 @@
-FROM nvidia/cuda:11.8.0-cudnn8-devel-ubuntu22.04
+FROM nvidia/cuda:12.4.1-cudnn-devel-ubuntu22.04
 
 ENV REFRESHED_AT 2024-08-12
 
@@ -82,26 +82,31 @@ ADD ./src/common/scripts $STARTUPDIR
 RUN $INST_SCRIPTS/set_user_permission.sh $STARTUPDIR $HOME
 
 ### Create conda environment
-RUN conda create -n Rope python=3.10.13 && conda clean --all -y
+RUN conda create -n visomaster python=3.10.13 && conda clean --all -y
 
 ### Activate the environment
-ENV CONDA_DEFAULT_ENV Rope
+ENV CONDA_DEFAULT_ENV visomaster
 RUN echo "source activate $CONDA_DEFAULT_ENV" >> ~/.bashrc
 ENV PATH /opt/conda/envs/$CONDA_DEFAULT_ENV/bin:$PATH
 
-### Install Rope
+### Install CUDA and cuDNN
+RUN conda install -c nvidia/label/cuda-12.4.1 cuda-runtime
+RUN conda install -c conda-forge cudnn
+
+### Install visomaster
 WORKDIR /workspace
-RUN git clone https://github.com/Hillobar/Rope.git
-WORKDIR /workspace/Rope
+RUN git clone https://github.com/visomaster/VisoMaster.git
+WORKDIR /workspace/visomaster
 
 ### Install dependencies. Fix Models.py backslash path
 RUN pip install -r ./requirements.txt --no-cache-dir
-COPY ./src/Models.py /workspace/Rope/rope/Models.py
+RUN conda install scikit-image
+RUN pip install -r requirements_cu124.txt
 
 ### Download models
-WORKDIR /workspace/Rope/models
-RUN wget -qO- https://api.github.com/repos/Hillobar/Rope/releases/tags/Sapphire | jq -r '.assets[] | .browser_download_url' | xargs -n 1 wget
-WORKDIR /workspace/Rope
+WORKDIR /workspace/visomaster/model_assets
+RUN python download_models.py
+WORKDIR /workspace/visomaster/model_assets
 
 ### Install jupyterlab
 RUN pip install jupyterlab
