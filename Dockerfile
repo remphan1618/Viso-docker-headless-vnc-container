@@ -58,6 +58,9 @@ ENV PATH /opt/conda/bin:$PATH
 ADD ./src/common/install/ $INST_SCRIPTS/
 ADD ./src/debian/install/ $INST_SCRIPTS/
 
+### Add the line to copy src/debian/install into the Docker image
+COPY src/debian/install /src/debian/install
+
 ### Install some common tools
 RUN chmod +x /src/debian/install/tools.sh && /src/debian/install/tools.sh
 ENV LANG='en_US.UTF-8' LANGUAGE='en_US:en' LC_ALL='en_US.UTF-8'
