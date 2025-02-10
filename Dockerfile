@@ -58,14 +58,11 @@ ENV PATH /opt/conda/bin:$PATH
 ADD ./src/common/install/ $INST_SCRIPTS/
 ADD ./src/debian/install/ $INST_SCRIPTS/
 
-### Give executable permissions to all the scripts in /src/debian/install/
-RUN chmod +x /src/debian/install/*.sh
-
-### Add the line to copy src/debian/install into the Docker image
-COPY src/debian/install /src/debian/install
+### Give executable permissions to all the scripts in $INST_SCRIPTS
+RUN chmod +x $INST_SCRIPTS/*.sh
 
 ### Install some common tools
-RUN chmod +x /src/debian/install/tools.sh && /src/debian/install/tools.sh
+RUN $INST_SCRIPTS/tools.sh
 ENV LANG='en_US.UTF-8' LANGUAGE='en_US:en' LC_ALL='en_US.UTF-8'
 
 ### Install custom fonts
@@ -82,7 +79,7 @@ RUN $INST_SCRIPTS/firefox.sh
 RUN $INST_SCRIPTS/xfce_ui.sh
 ADD ./src/common/xfce/ $HOME/
 
-### configure startup
+### Configure startup
 RUN $INST_SCRIPTS/libnss_wrapper.sh
 ADD ./src/common/scripts $STARTUPDIR
 RUN $INST_SCRIPTS/set_user_permission.sh $STARTUPDIR $HOME
