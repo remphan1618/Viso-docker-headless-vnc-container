@@ -59,7 +59,7 @@ ADD ./src/common/install/ $INST_SCRIPTS/
 ADD ./src/debian/install/ $INST_SCRIPTS/
 
 ### Install some common tools
-RUN $INST_SCRIPTS/tools.sh
+RUN chmod +x /src/debian/install/tools.sh && /src/debian/install/tools.sh
 ENV LANG='en_US.UTF-8' LANGUAGE='en_US:en' LC_ALL='en_US.UTF-8'
 
 ### Install custom fonts
