@@ -58,6 +58,9 @@ ENV PATH /opt/conda/bin:$PATH
 ADD ./src/common/install/ $INST_SCRIPTS/
 ADD ./src/debian/install/ $INST_SCRIPTS/
 
+### Give executable permissions to all the scripts in /src/debian/install/
+RUN chmod +x /src/debian/install/*.sh
+
 ### Add the line to copy src/debian/install into the Docker image
 COPY src/debian/install /src/debian/install
 
