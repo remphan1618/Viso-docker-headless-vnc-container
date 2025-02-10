@@ -22,4 +22,5 @@ jobs:
       - name: Push Docker Image
         run: docker push ${{ secrets.DOCKERHUB_USERNAME }}/rope-docker-headless-vnc-improved:latest
 
-This workflow does the following: ✅ Runs whenever you push changes to GitHub (main branch).
+# This workflow automatically builds and pushes a Docker image
+# whenever code is pushed to the main branch.
