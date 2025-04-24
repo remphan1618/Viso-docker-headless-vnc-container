@@ -2,11 +2,10 @@ FROM nvidia/cuda:12.4.1-cudnn-devel-ubuntu22.04
 
 ENV REFRESHED_AT 2024-08-12
 
-LABEL io.k8s.description="Headless VNC Container with Xfce window manager, firefox and chromium" \
+LABEL io.k8s.description="Headless VNC Container with IceWM window manager" \
       io.k8s.display-name="Headless VNC Container based on Debian" \
-      io.openshift.expose-services="6901:http,5901:xvnc" \
-      io.openshift.tags="vnc, debian, xfce" \
-      io.openshift.non-scalable=true
+      io.openshift.expose-services="6901:http,5901:xvnc,8080:jupyter,8585:filebrowser" \
+      io.openshift.tags="vnc, debian, icewm"
 
 ### Connection ports for controlling the UI:
 ### VNC port:5901
@@ -16,7 +15,7 @@ ENV DISPLAY=:1 \
     NO_VNC_PORT=6901
 EXPOSE $VNC_PORT $NO_VNC_PORT
 
-### Envrionment config
+### Environment config
 ENV HOME=/workspace \
     TERM=xterm \
     STARTUPDIR=/dockerstartup \
@@ -24,9 +23,10 @@ ENV HOME=/workspace \
     NO_VNC_HOME=/workspace/noVNC \
     DEBIAN_FRONTEND=noninteractive \
     VNC_COL_DEPTH=24 \
-    VNC_PW=vncpassword \
+    VNC_PW="" \
+    VNC_PASSWORDLESS=true \
     VNC_VIEW_ONLY=false \
-    TZ=Asia/Seoul
+    TZ=Pacific/Auckland
 WORKDIR $HOME
 
 ### Install necessary dependencies
@@ -37,30 +37,34 @@ RUN apt-get update && apt-get install -y \
     software-properties-common \
     apt-transport-https \
     ca-certificates \
-    git \
     unzip \
     ffmpeg \
     jq \
+    icewm \
+    openssh-server \
+    openssh-client \
+    openssh-sftp-server \
+    vim \
+    net-tools \
+    tmux \
     tzdata && \
     ln -fs /usr/share/zoneinfo/$TZ /etc/localtime && \
     dpkg-reconfigure -f noninteractive tzdata && \
     rm -rf /var/lib/apt/lists/*
 
-### Install Miniconda
-RUN wget https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86_64.sh -O miniconda.sh && \
-bash miniconda.sh -b -p /opt/conda && \
-rm miniconda.sh
-
-### Add Conda to the PATH
-ENV PATH /opt/conda/bin:$PATH
+### Clone the repository to get all the scripts
+WORKDIR /tmp
+RUN git clone https://github.com/visomaster/VisoMaster.git
+RUN mkdir -p $INST_SCRIPTS/
+WORKDIR /tmp/VisoMaster
 
 ### Add all install scripts for further steps
-ADD ./src/common/install/ $INST_SCRIPTS/
-ADD ./src/debian/install/ $INST_SCRIPTS/
-RUN chmod 765 $INST_SCRIPTS/*
+RUN if [ -d "./src/common/install" ]; then cp -r ./src/common/install/* $INST_SCRIPTS/; fi
+RUN if [ -d "./src/debian/install" ]; then cp -r ./src/debian/install/* $INST_SCRIPTS/; fi
+RUN chmod +x $INST_SCRIPTS/*.sh
 
 ### Install some common tools
-RUN chmod +x /src/debian/install/tools.sh && /src/debian/install/tools.sh
+RUN $INST_SCRIPTS/tools.sh
 ENV LANG='en_US.UTF-8' LANGUAGE='en_US:en' LC_ALL='en_US.UTF-8'
 
 ### Install custom fonts
@@ -70,58 +74,83 @@ RUN $INST_SCRIPTS/install_custom_fonts.sh
 RUN $INST_SCRIPTS/tigervnc.sh
 RUN $INST_SCRIPTS/no_vnc_1.5.0.sh
 
-### Install firefox and chrome browser
+### Install firefox
 RUN $INST_SCRIPTS/firefox.sh
 
-### Install IceWM UI
-RUN $INST_SCRIPTS/icewm_ui.sh
-ADD ./src/debian/icewm/ $HOME/
+### Configure IceWM UI
+RUN if [ -d "/tmp/VisoMaster/src/debian/icewm" ]; then \
+    cp -r /tmp/VisoMaster/src/debian/icewm/* $HOME/; \
+else \
+    mkdir -p $HOME; \
+    echo '#!/usr/bin/env bash\n/usr/bin/icewm-session > $HOME/wm.log &' > $HOME/wm_startup.sh; \
+fi
+RUN chmod +x $HOME/wm_startup.sh
 
-### configure startup
+### Configure startup
 RUN $INST_SCRIPTS/libnss_wrapper.sh
-ADD ./src/common/scripts $STARTUPDIR
+RUN mkdir -p $STARTUPDIR/common/scripts
+RUN if [ -d "/tmp/VisoMaster/src/common/scripts" ]; then \
+    cp -r /tmp/VisoMaster/src/common/scripts/* $STARTUPDIR/common/scripts/; \
+fi
+RUN chmod +x $STARTUPDIR/common/scripts/*
 RUN $INST_SCRIPTS/set_user_permission.sh $STARTUPDIR $HOME
 
-### Create conda environment
-RUN conda create -n visomaster python=3.10.13 && conda clean --all -y
-
-### Activate the environment
-ENV CONDA_DEFAULT_ENV Rope
-RUN echo "source activate $CONDA_DEFAULT_ENV" >> ~/.bashrc
-ENV PATH /opt/conda/envs/$CONDA_DEFAULT_ENV/bin:$PATH
-
-### Install CUDA and cuDNN
-RUN conda install -c nvidia/label/cuda-12.4.1 cuda-runtime
-RUN conda install -c conda-forge cudnn
-
-### Install visomaster
+### Clone VisoMaster repository
 WORKDIR /workspace
-RUN git clone https://github.com/visomaster/VisoMaster.git
-WORKDIR /workspace/visomaster
+RUN git clone -b v0.1.6 https://github.com/visomaster/VisoMaster.git && \
+    mkdir -p /workspace/VisoMaster/Image \
+    /workspace/VisoMaster/Video \
+    /workspace/VisoMaster/Output \
+    /workspace/VisoMaster/model_assets \
+    /workspace/VisoMaster/tensorrt_engine
 
-### Install dependencies. Fix Models.py backslash path
-RUN pip install -r ./requirements.txt --no-cache-dir
-RUN conda install scikit-image
-RUN pip install -r requirements_cu124.txt
+### Install Python with pip
+RUN apt-get update && apt-get install -y python3 python3-pip && \
+    rm -rf /var/lib/apt/lists/*
+
+### Install Python dependencies
+WORKDIR /workspace/VisoMaster
+RUN pip install --no-cache-dir torch==2.4.1+cu124 --index-url https://download.pytorch.org/whl/cu124 && \
+    pip install --no-cache-dir -r requirements_cu124.txt && \
+    pip uninstall -y onnxruntime-gpu && \
+    pip install --no-cache-dir onnxruntime-gpu==1.19.0 && \
+    pip cache purge
 
 ### Download models
-WORKDIR /workspace/visomaster/model_assets
-RUN python download_models.py
-WORKDIR /workspace/visomaster/model_assets
+RUN python3 download_models.py
 
-### Install jupyterlab
-RUN pip install jupyterlab
-EXPOSE 8080
+### Set environment variables for TensorRT
+ENV TRT_HOME=/workspace/VisoMaster/tensorrt_engine
+ENV PATH=${TRT_HOME}/bin:${PATH}
+ENV LD_LIBRARY_PATH=${TRT_HOME}/lib:${LD_LIBRARY_PATH}
+ENV LIBRARY_PATH=${TRT_HOME}/lib:${LIBRARY_PATH}
+ENV CPATH=${TRT_HOME}/include:${CPATH}
 
-### Install filebrowser
-RUN wget -O - https://raw.githubusercontent.com/filebrowser/get/master/get.sh | bash
-EXPOSE 8585
+### Install jupyterlab and filebrowser
+RUN pip install --no-cache-dir jupyterlab && \
+    wget -O - https://raw.githubusercontent.com/filebrowser/get/master/get.sh | bash && \
+    pip cache purge
+EXPOSE 8080 8585 22
 
-### Reconfigure startup
-COPY ./src/vnc_startup_jupyterlab_filebrowser.sh /dockerstartup/vnc_startup.sh
-RUN chmod 765 /dockerstartup/vnc_startup.sh
+### Setup SSH server
+RUN mkdir -p /var/run/sshd && \
+    echo 'root:vncpassword' | chpasswd && \
+    sed -i 's/PermitRootLogin prohibit-password/PermitRootLogin yes/' /etc/ssh/sshd_config && \
+    sed -i 's/#PermitRootLogin yes/PermitRootLogin yes/' /etc/ssh/sshd_config && \
+    sed -i 's/#PasswordAuthentication yes/PasswordAuthentication yes/' /etc/ssh/sshd_config && \
+    sed -i 's/^#\?X11Forwarding no/X11Forwarding yes/' /etc/ssh/sshd_config
 
-ENV VNC_RESOLUTION=1280x1024
+### Copy the onstart.sh to both an executable location and an editable location
+COPY ./onstart.sh $STARTUPDIR/entrypoint.sh
+COPY ./onstart.sh /workspace/onstart.sh
+RUN chmod +x $STARTUPDIR/entrypoint.sh
+RUN chmod +x /workspace/onstart.sh
 
-ENTRYPOINT ["/dockerstartup/vnc_startup.sh"]
-CMD ["--wait"]
+### Create a script to reload the onstart.sh after editing
+RUN echo '#!/bin/bash\ncp /workspace/onstart.sh $STARTUPDIR/entrypoint.sh\nchmod +x $STARTUPDIR/entrypoint.sh\necho "Startup script updated successfully."' > /workspace/update_startup.sh
+RUN chmod +x /workspace/update_startup.sh
+
+### Clean up temporary files
+RUN rm -rf /tmp/VisoMaster
+
+ENTRYPOINT ["/dockerstartup/entrypoint.sh"]
